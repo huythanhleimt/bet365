@@ -1,0 +1,71 @@
+# =============================================================
+# Bet365 - Football Betting Website
+# GitOps Deployment Configuration
+# =============================================================
+
+# ── Azure DevOps Configuration ───────────────────────────────
+ado:
+  base_url:   "https://devops.imt-soft.com"
+  collection: "Inheritance"
+  project:    "IMT-AITaskForce"
+
+# ── Source repository ────────────────────────────────────────
+repository:
+  name:   "bet365"
+  branch: "develop"
+
+# ── Pipeline Configuration ───────────────────────────────────
+pipeline:
+  name: "bet365-pipeline"
+
+# ── CI Configuration ─────────────────────────────────────────
+ci:
+  image_name:       "aiteam/bet365"
+  container_name:   "bet365"
+  dockerfile_path:  "Dockerfile"
+  build_context:    "."
+  acr_login_server: "registry-stag.imt-soft.com"
+
+# ── Deploy Configuration ─────────────────────────────────────
+deploy:
+  namespace:      "ai-team"
+  replicas:       1
+  container_port: 3000
+
+  service:
+    type:      "NodePort"
+    node_port: 31850
+
+  resources:
+    requests:
+      cpu:    "100m"
+      memory: "256Mi"
+    limits:
+      cpu:    "1000m"
+      memory: "1Gi"
+
+  health_check:
+    enabled:               true
+    path:                  "/health"
+    initial_delay_seconds: 15
+    period_seconds:        30
+    failure_threshold:     3
+
+  env:
+    - name:  "PORT"
+      value: "3000"
+    - name:  "NODE_ENV"
+      value: "production"
+
+  ingress:
+    enabled:    false
+    host:       "bet365.imt-soft.com"
+    path:       "/"
+    tls:        false
+    tls_secret: "bet365-tls"
+
+  hpa:
+    enabled:            false
+    min_replicas:       1
+    max_replicas:       5
+    cpu_target_percent: 70
