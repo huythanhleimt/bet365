@@ -1,0 +1,93 @@
+name: $(Date:yyyyMMdd)$(Rev:.r)
+# ── Trigger ────────────────────────────────────────────────────
+# Auto-updated by bootstrap.sh from values.yaml → repository.branch
+trigger:
+  branches:
+    include:
+      - develop
+pool:
+  name: 'AI Team'
+# ── Variables ──────────────────────────────────────────────────
+# Auto-updated by bootstrap.sh from values.yaml — do not edit manually.
+# To change any value: update values.yaml, then re-run ./bootstrap.sh
+variables:
+  - name: imageName
+    value: "aiteam/bet365"
+  - name: containerName
+    value: "bet365"
+  - name: dockerfilePath
+    value: "Dockerfile"
+  - name: buildContext
+    value: "."
+  - name: acrLoginServer
+    value: "registry-stag.imt-soft.com"
+  - name: namespace
+    value: "ai-team"
+  - name: containerPort
+    value: "3000"
+stages:
+  # ── Stage 1: Build & Push ─────────────────────────────────────
+  - stage: Build
+    displayName: Build and Push Docker Image
+    jobs:
+      - job: BuildPush
+        displayName: Build and Push
+        steps:
+          - checkout: self
+          - task: Docker@2
+            displayName: Build Docker Image
+            inputs:
+              containerRegistry: dockerRegistryServiceConnection
+              repository: $(imageName)
+              command: build
+              Dockerfile: $(dockerfilePath)
+              buildContext: $(buildContext)
+              tags: latest
+          - task: Docker@2
+            displayName: Push Image to Registry
+            inputs:
+              containerRegistry: dockerRegistryServiceConnection
+              repository: $(imageName)
+              command: push
+              tags: latest
+          - script: |
+              docker rmi $(acrLoginServer)/$(imageName):latest || true
+            displayName: Clean Up Local Image
+  # ── Stage 2: Deploy ───────────────────────────────────────────
+  - stage: Deploy
+    displayName: Deploy to Kubernetes
+    dependsOn: Build
+    jobs:
+      - job: Deploy
+        displayName: Apply Manifests to Cluster
+        steps:
+          - checkout: self
+          - script: |
+              echo "Rendering deployment manifest from template..."
+              envsubst < deployment.tpl.yaml > deployment.yaml
+              echo "=== Rendered deployment.yaml ==="
+              cat deployment.yaml
+            displayName: Render Deployment Manifest
+            env:
+              CONTAINER_NAME: $(containerName)
+              IMAGE_NAME: $(imageName)
+              ACR_LOGIN_SERVER: $(acrLoginServer)
+              NAMESPACE: $(namespace)
+              CONTAINER_PORT: $(containerPort)
+          - task: Kubernetes@1
+            displayName: Apply Manifest (kubectl apply)
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceEndpoint: kubeServiceConnection
+              namespace: $(namespace)
+              command: apply
+              useConfigurationFile: true
+              configuration: deployment.yaml
+          - task: Kubernetes@1
+            displayName: Rollout Restart (force pull latest image)
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceEndpoint: kubeServiceConnection
+              namespace: $(namespace)
+              command: rollout
+              arguments: restart deployment/$(containerName)
